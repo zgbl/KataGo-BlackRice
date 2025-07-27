@@ -1,0 +1,71 @@
+version: '3.8'
+
+services:
+  katago-analysis:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        USE_BACKEND: EIGEN  # 可选: EIGEN, OPENCL, CUDA
+        USE_TCMALLOC: 1
+        USE_AVX2: 0  # 在Mac上设为0，在支持AVX2的x86机器上可设为1
+        BUILD_DISTRIBUTED: 0
+    container_name: katago-analysis
+    volumes:
+      # 挂载模型文件目录
+      - ./models:/app/models:ro
+      # 挂载日志目录
+      - ./logs:/app/logs
+      - ./analysis_logs:/app/analysis_logs
+      # 挂载自定义配置（可选）
+      - ./configs:/app/configs/custom:ro
+    environment:
+      - TZ=Asia/Shanghai
+    stdin_open: true
+    tty: true
+    command: /app/start_analysis.sh
+    restart: unless-stopped
+
+  katago-gtp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        USE_BACKEND: EIGEN
+        USE_TCMALLOC: 1
+        USE_AVX2: 0
+        BUILD_DISTRIBUTED: 0
+    container_name: katago-gtp
+    volumes:
+      - ./models:/app/models:ro
+      - ./logs:/app/logs
+      - ./configs:/app/configs/custom:ro
+    environment:
+      - TZ=Asia/Shanghai
+    stdin_open: true
+    tty: true
+    command: /app/start_gtp.sh
+    restart: unless-stopped
+
+  katago-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        USE_BACKEND: EIGEN
+        USE_TCMALLOC: 1
+        USE_AVX2: 0
+        BUILD_DISTRIBUTED: 0
+    container_name: katago-dev
+    volumes:
+      - ./models:/app/models:ro
+      - ./logs:/app/logs
+      - ./analysis_logs:/app/analysis_logs
+      - ./configs:/app/configs/custom:ro
+      - ./python_examples:/app/python_examples
+    environment:
+      - TZ=Asia/Shanghai
+    stdin_open: true
+    tty: true
+    command: /bin/bash
+    restart: unless-stopped
