@@ -1,112 +1,146 @@
-# KataGo
+# KataGo - BlackRice Tech Edition
 
-* [Overview](#overview)
-* [Training History and Research](#training-history-and-research)
-* [Where To Download Stuff](#where-to-download-stuff)
-* [Setting Up and Running KataGo](#setting-up-and-running-katago)
-  * [GUIs](#guis)
-  * [Windows and Linux](#windows-and-linux)
+> **🏢 BlackRice Tech 定制版本**  
+> 这是由 BlackRice Tech 公司基于开源 KataGo 项目开发的定制版本，专为企业级围棋AI应用和分析引擎开发而优化。
+
+---
+
+## 🚀 BlackRice Tech 版本特性
+
+- **🐳 Docker 化部署**: 完整的容器化解决方案，支持快速部署和扩展
+- **⚡ 企业级优化**: 针对高并发分析场景的性能优化
+- **🔧 开发者友好**: 增强的API接口和开发工具
+- **📊 分析引擎增强**: 优化的JSON分析引擎，支持批量处理
+- **🛠️ 定制化配置**: 企业级配置管理和监控
+
+## 📋 目录
+
+* [BlackRice Tech 版本特性](#blackrice-tech-版本特性)
+* [概述](#概述)
+* [训练历史和研究](#训练历史和研究)
+* [下载资源](#下载资源)
+* [安装和运行 KataGo](#安装和运行-katago)
+  * [图形界面](#图形界面)
+  * [Windows 和 Linux](#windows-和-linux)
   * [MacOS](#macos)
   * [OpenCL vs CUDA vs TensorRT vs Eigen](#opencl-vs-cuda-vs-tensorrt-vs-eigen)
-  * [How To Use](#how-to-use)
-  * [Tuning for Performance](#tuning-for-performance)
-  * [Common Questions and Issues](#common-questions-and-issues)
-    * [Issues with specific GPUs or GPU drivers](#issues-with-specific-gpus-or-gpu-drivers)
-    * [Common Problems](#common-problems)
-    * [Other Questions](#other-questions)
-* [Features for Developers](#features-for-developers)
-  * [GTP Extensions](#gtp-extensions)
-  * [Analysis Engine](#analysis-engine)
-* [Compiling KataGo](#compiling-katago)
-* [Source Code Overview](#source-code-overview)
-* [Selfplay Training](#selfplay-training)
-* [Contributors](#contributors)
-* [License](#license)
+  * [使用方法](#使用方法)
+  * [性能调优](#性能调优)
+  * [常见问题](#常见问题)
+    * [特定GPU或驱动问题](#特定gpu或驱动问题)
+    * [常见问题](#常见问题-1)
+    * [其他问题](#其他问题)
+* [开发者功能](#开发者功能)
+  * [GTP 扩展](#gtp-扩展)
+  * [分析引擎](#分析引擎)
+* [编译 KataGo](#编译-katago)
+* [源码概览](#源码概览)
+* [自对弈训练](#自对弈训练)
+* [贡献者](#贡献者)
+* [许可证](#许可证)
 
-## Overview
+## 概述
 
-KataGo's public distributed training run is ongoing! See https://katagotraining.org/ for more details, to download the latest and strongest neural nets, or to learn how to contribute if you want to help KataGo improve further! Also check out the computer Go [discord channel](https://discord.gg/bqkZAz3)!
+**BlackRice Tech 版本说明**: 本版本基于 KataGo 开源项目进行定制开发，专注于企业级应用场景。我们保持与上游项目的兼容性，同时添加了企业级功能和优化。
 
-As of 2025, KataGo remains one of the strongest open source Go bots available online. KataGo was trained using an AlphaZero-like process with many enhancements and improvements, and is capable of reaching top levels rapidly and entirely from scratch with no outside data, improving only via self-play. Some of these improvements take advantage of game-specific features and training targets, but also many of the techniques are general and could be applied in other games. As a result, early training is immensely faster than in other self-play-trained bots - with only a few strong GPUs for a few days, any researcher/enthusiast should be able to train a neural net from nothing to high amateur dan strength on the full 19x19 board. If tuned well, a training run using only a *single* top-end consumer GPU could possibly train a bot from scratch to superhuman strength within a few months.
+KataGo 是目前最强的开源围棋AI引擎之一。KataGo 使用类似 AlphaZero 的训练过程，并包含许多增强和改进，能够快速达到顶级水平，完全从零开始，无需外部数据，仅通过自对弈改进。这些改进中的一些利用了游戏特定的特征和训练目标，但许多技术是通用的，可以应用于其他游戏。因此，早期训练比其他自对弈训练的机器人快得多 - 只需几个强大的GPU几天时间，任何研究人员/爱好者都应该能够从零开始训练神经网络到高业余段位水平。如果调优得当，仅使用*单个*顶级消费级GPU的训练运行可能在几个月内将机器人从零训练到超人类强度。
 
-Experimentally, KataGo did also try some limited ways of using external data at the end of its June 2020 run, and has continued to do so into its most recent public distributed run, "kata1" at https://katagotraining.org/. External data is not necessary for reaching top levels of play, but still appears to provide some mild benefits against some opponents, and noticeable benefits in a useful analysis tool for a variety of kinds of situations that don't occur in self-play but that do occur in human games and  games that users wish to analyze.
+KataGo 的引擎旨在成为围棋玩家和开发者的有用工具，支持以下功能：
+* 估算领地和得分，而不仅仅是"胜率"，帮助分析业余段位游戏，而不仅仅是在职业/超人类水平上实际影响游戏结果的着法。
+* 关心最大化得分，在让子棋中落后时能够强力对战，在终局获胜时减少松懈着法。
+* 支持不同的贴目值（包括整数值）和良好的高让子游戏对弈。
+* 支持从7x7到19x19的棋盘大小，截至2020年5月，可能是9x9和13x13上最强的开源机器人。
+* 支持各种[规则](https://lightvector.github.io/KataGo/rules.html)，包括在几乎所有常见情况下匹配日本规则的规则，以及古代数子规则。
+* 对于工具/后端开发者 - 支持基于JSON的分析引擎，可以高效批处理多游戏评估，比GTP更易于使用。
 
-KataGo's engine aims to be a useful tool for Go players and developers, and supports the following features:
-* Estimates territory and score, rather than only "winrate", helping analyze kyu and amateur dan games besides only on moves that actually would swing the game outcome at pro/superhuman-levels of play.
-* Cares about maximizing score, enabling strong play in handicap games when far behind, and reducing slack play in the endgame when winning.
-* Supports alternative values of komi (including integer values) and good high-handicap game play.
-* Supports board sizes ranging from 7x7 to 19x19, and as of May 2020 may be the strongest open-source bot on both 9x9 and 13x13 as well.
-* Supports a wide variety of [rules](https://lightvector.github.io/KataGo/rules.html), including rules that match Japanese rules in almost all common cases, and ancient stone-counting-like rules.
-* For tool/back-end developers - supports a JSON-based analysis engine that can batch multiple-game evaluations efficiently and be easier to use than GTP.
+## 训练历史和研究
 
-## Training History and Research and Docs
+以下是一些关于 KataGo 研究和训练的文档/论文/帖子链接！
 
-Here are some links to some docs/papers/posts about KataGo's research and training!
+* 关于 KataGo 中使用的主要新思想和技术的论文：[Accelerating Self-Play Learning in Go (arXiv)](https://arxiv.org/abs/1902.10565)。许多具体参数已过时，但一般方法继续使用。
 
-* Paper about the major new ideas and techniques used in KataGo: [Accelerating Self-Play Learning in Go (arXiv)](https://arxiv.org/abs/1902.10565). Many of the specific parameters are outdated, but the general methods continue to be used.
+* 自那时以来发现了许多重大改进，这些改进已纳入 KataGo 最近的运行中，并在此处记录：[KataGoMethods.md](docs/KataGoMethods.md)。
 
-* Many major further improvements have been found since then, which have been incorporated into KataGo's more recent runs and are documented here: [KataGoMethods.md](docs/KataGoMethods.md).
+* KataGo 有一个完全工作的蒙特卡洛图搜索实现，将MCTS扩展到在图上而不仅仅是树上操作！解释可以在这里找到 [Monte-Carlo Graph Search from First Principles](docs/GraphSearch.md)。这个解释是通用的（不特定于KataGo），旨在填补学术文献中解释材料的巨大空白，希望对其他人有用！
 
-* KataGo has a fully working implementation of Monte-Carlo Graph Search, extending MCTS to operate on graphs instead of just trees! An explanation can be found here [Monte-Carlo Graph Search from First Principles](docs/GraphSearch.md). This explanation is written to be general (not specific to KataGo) and to fill a big gap in explanatory material in the academic literature and hopefully it can be useful to others!
-
-* Many thanks to [Jane Street](https://www.janestreet.com/) for supporting the training of KataGo's major earlier published runs, as well as numerous many smaller testing runs and experiments. Blog posts about the initial release and some interesting subsequent experiments:
+* 非常感谢 [Jane Street](https://www.janestreet.com/) 支持 KataGo 主要早期发布运行的训练，以及众多较小的测试运行和实验。关于初始发布和一些有趣后续实验的博客文章：
     * [Accelerating Self-Play Learning in Go](https://blog.janestreet.com/accelerating-self-play-learning-in-go/)
-    * [Deep-Learning the Hardest Go Problem in the World](https://blog.janestreet.com/deep-learning-the-hardest-go-problem-in-the-world/).
+    * [Deep-Learning the Hardest Go Problem in the World](https://blog.janestreet.com/deep-learning-the-hardest-go-problem-in-the-world/)。
 
-For more details about KataGo's older training runs, including comparisons to other bots, see [Older Training History and Research](TrainingHistory.md)!
+有关 KataGo 较旧训练运行的更多详细信息，包括与其他机器人的比较，请参阅 [Older Training History and Research](TrainingHistory.md)！
 
-Also if you're looking to ask about general information about KataGo or how it works, or about some past Go bots besides KataGo, consider the computer Go [discord channel](https://discord.gg/bqkZAz3).
+如果您想询问关于 KataGo 或其工作原理的一般信息，或关于除 KataGo 之外的一些过去的围棋机器人，请考虑计算机围棋 [discord频道](https://discord.gg/bqkZAz3)。
 
-## Where To Download Stuff
-Precompiled executables for KataGo can be found at the [releases page](https://github.com/lightvector/KataGo/releases) for Windows and Linux.
+## 下载资源
 
-And the latest neural nets are available at [https://katagotraining.org/](https://katagotraining.org/).
+**BlackRice Tech 版本**: 请从我们的企业仓库获取最新的预编译可执行文件和模型。
 
-## Setting Up and Running KataGo
-KataGo implements just a GTP engine, which is a simple text protocol that Go software uses. It does NOT have a graphical interface on its own. So generally, you will want to use KataGo along with a GUI or analysis program. A few of them bundle KataGo in their download so that you can get everything from one place rather than downloading separately and managing the file paths and commands.
+原版 KataGo 的预编译可执行文件可以在 [releases page](https://github.com/lightvector/KataGo/releases) 找到，支持 Windows 和 Linux。
 
-### GUIs
-This is by no means a complete list - there are lots of things out there. But, writing as of 2020, a few of the easier and/or popular ones might be:
+最新的神经网络可在 [https://katagotraining.org/](https://katagotraining.org/) 获得。
 
-* [KaTrain](https://github.com/sanderland/katrain) - KaTrain might be the easiest to set up for non-technical users, offering an all-in-one package (no need to download KataGo separately!), modified-strength bots for weaker players, and good analysis features.
-* [Lizzie](https://github.com/featurecat/lizzie) - Lizzie is very popular for running long interactive analyses and visualizing them as they happen. Lizzie also offers an all-in-one package. However keep mind that KataGo's OpenCL version may take quite a while to tune and load on the very first startup as described [here](#opencl-vs-cuda), and Lizzie does a poor job of displaying this progress as it happens. And in case of an actual error or failure, Lizzie's interface is not the best at explaining these errors and will appear to hang forever. The version of KataGo packaged with Lizzie is quite strong but might not always be the newest or strongest, so once you have it working, you may want to download KataGo and a newer network from [releases page](https://github.com/lightvector/KataGo/releases) and replace Lizzie's versions with them.
-* [Ogatak](https://github.com/rooklift/ogatak) is a KataGo-specific GUI with an emphasis on displaying the basics in a snappy, responsive fashion. It does not come with KataGo included.
-* [q5Go](https://github.com/bernds/q5Go) and [Sabaki](https://sabaki.yichuanshen.de/) are general SGF editors and GUIs that support KataGo, including KataGo's score estimation, and many high-quality features.
+## 安装和运行 KataGo
 
-Generally, for GUIs that don't offer an all-in-one package, you will need to download KataGo (or any other Go engine of your choice!) and tell the GUI the proper command line to run to invoke your engine, with the proper file paths involved. See [How To Use](#how-to-use) below for details on KataGo's command line interface.
+**BlackRice Tech Docker 部署**: 我们推荐使用提供的 Docker 解决方案进行快速部署：
 
-### Windows and Linux
+```bash
+# 构建 Docker 镜像
+./build_docker.sh
 
-KataGo currently officially supports both Windows and Linux, with [precompiled executables provided each release](https://github.com/lightvector/KataGo/releases). On Windows, the executables should generally work out of the box, on Linux if you encounter issues with system library versions, as an alternative [building from source](Compiling.md) is usually straightforward. Not all different OS versions and compilers have been tested, so if you encounter problems, feel free to open an issue. KataGo can also of course be compiled from source on Windows via MSVC on Windows or on Linux via usual compilers like g++, documented further down.
+# 运行分析引擎
+docker-compose run --rm katago-analysis
+
+# 运行 GTP 引擎
+docker-compose run --rm katago-gtp
+
+# 开发环境
+docker-compose run --rm katago-dev
+```
+
+KataGo 实现的是 GTP 引擎，这是围棋软件使用的简单文本协议。它本身没有图形界面。因此，通常您需要将 KataGo 与 GUI 或分析程序一起使用。其中一些在下载中捆绑了 KataGo，这样您就可以从一个地方获得所有内容，而不是分别下载和管理文件路径和命令。
+
+### 图形界面
+这绝不是一个完整的列表 - 有很多东西。但是，截至2020年，一些更容易和/或流行的可能是：
+
+* [KaTrain](https://github.com/sanderland/katrain) - KaTrain 对于非技术用户来说可能是最容易设置的，提供一体化包（无需单独下载 KataGo！），为较弱玩家提供修改强度的机器人，以及良好的分析功能。
+* [Lizzie](https://github.com/featurecat/lizzie) - Lizzie 在运行长时间交互式分析和实时可视化方面非常受欢迎。Lizzie 也提供一体化包。但是请记住，KataGo 的 OpenCL 版本在第一次启动时可能需要相当长的时间来调优和加载，如[这里](#opencl-vs-cuda)所述，Lizzie 在显示这个进度时做得很差。在实际错误或失败的情况下，Lizzie 的界面不是最好的解释这些错误，会看起来永远挂起。与 Lizzie 打包的 KataGo 版本相当强，但可能不总是最新或最强的，所以一旦您让它工作，您可能想要从 [releases page](https://github.com/lightvector/KataGo/releases) 下载 KataGo 和更新的网络，并用它们替换 Lizzie 的版本。
+* [Ogatak](https://github.com/rooklift/ogatak) 是一个 KataGo 特定的 GUI，强调以快速、响应的方式显示基础知识。它不包含 KataGo。
+* [q5Go](https://github.com/bernds/q5Go) 和 [Sabaki](https://sabaki.yichuanshen.de/) 是支持 KataGo 的通用 SGF 编辑器和 GUI，包括 KataGo 的得分估算和许多高质量功能。
+
+通常，对于不提供一体化包的 GUI，您需要下载 KataGo（或您选择的任何其他围棋引擎！）并告诉 GUI 运行引擎的正确命令行，包含正确的文件路径。有关 KataGo 命令行界面的详细信息，请参阅下面的[使用方法](#使用方法)。
+
+### Windows 和 Linux
+
+KataGo 目前正式支持 Windows 和 Linux，[每个版本都提供预编译可执行文件](https://github.com/lightvector/KataGo/releases)。在 Windows 上，可执行文件通常应该开箱即用，在 Linux 上，如果您遇到系统库版本问题，作为替代方案，[从源码构建](Compiling.md) 通常很简单。并非所有不同的操作系统版本和编译器都经过测试，所以如果您遇到问题，请随时开启一个 issue。KataGo 当然也可以在 Windows 上通过 MSVC 或在 Linux 上通过 g++ 等常用编译器从源码编译，进一步记录如下。
 
 ### MacOS
-The community also provides KataGo packages for [Homebrew](https://brew.sh) on MacOS - releases there may lag behind official releases slightly.
+社区还为 MacOS 上的 [Homebrew](https://brew.sh) 提供 KataGo 包 - 那里的发布可能会稍微滞后于官方发布。
 
-Use `brew install katago`. The latest config files and networks are installed in KataGo's `share` directory. Find them via `brew list --verbose katago`. A basic way to run katago will be `katago gtp -config $(brew list --verbose katago | grep 'gtp.*\.cfg') -model $(brew list --verbose katago | grep .gz | head -1)`. You should choose the Network according to the release notes here and customize the provided example config as with every other way of installing KataGo.
+使用 `brew install katago`。最新的配置文件和网络安装在 KataGo 的 `share` 目录中。通过 `brew list --verbose katago` 找到它们。运行 katago 的基本方法是 `katago gtp -config $(brew list --verbose katago | grep 'gtp.*\.cfg') -model $(brew list --verbose katago | grep .gz | head -1)`。您应该根据这里的发布说明选择网络，并像安装 KataGo 的其他方式一样自定义提供的示例配置。
 
 ### OpenCL vs CUDA vs TensorRT vs Eigen
-KataGo has four backends, OpenCL (GPU), CUDA (GPU), TensorRT (GPU), and Eigen (CPU).
+KataGo 有四个后端：OpenCL（GPU）、CUDA（GPU）、TensorRT（GPU）和 Eigen（CPU）。
 
-The quick summary is:
-  * **To easily get something working, try OpenCL if you have any good or decent GPU.**
-  * **For often much better performance on NVIDIA GPUs, try TensorRT**, but you may need to install TensorRT from Nvidia.
-  * Use Eigen with AVX2 if you don't have a GPU or if your GPU is too old/weak to work with OpenCL, and you just want a plain CPU KataGo.
-  * Use Eigen without AVX2 if your CPU is old or on a low-end device that doesn't support AVX2.
-  * The CUDA backend can work for NVIDIA GPUs with CUDA+CUDNN installed but is likely worse than TensorRT.
+快速总结是：
+  * **要轻松获得工作的东西，如果您有任何好的或不错的GPU，请尝试 OpenCL。**
+  * **对于 NVIDIA GPU 通常更好的性能，请尝试 TensorRT**，但您可能需要从 Nvidia 安装 TensorRT。
+  * 如果您没有 GPU 或您的 GPU 太旧/太弱无法与 OpenCL 一起工作，并且您只想要一个纯 CPU KataGo，请使用带 AVX2 的 Eigen。
+  * 如果您的 CPU 很旧或在不支持 AVX2 的低端设备上，请使用不带 AVX2 的 Eigen。
+  * CUDA 后端可以与安装了 CUDA+CUDNN 的 NVIDIA GPU 一起工作，但可能比 TensorRT 差。
 
-More in detail:
-  * OpenCL is a general GPU backend should be able to run with any GPUs or accelerators that support [OpenCL](https://en.wikipedia.org/wiki/OpenCL), including NVIDIA GPUs, AMD GPUs, as well CPU-based OpenCL implementations or things like Intel Integrated Graphics. This is the most general GPU version of KataGo and doesn't require a complicated install like CUDA does, so is most likely to work out of the box as long as you have a fairly modern GPU. **However, it also need to take some time when run for the very first time to tune itself.** For many systems, this will take 5-30 seconds, but on a few older/slower systems, may take many minutes or longer. Also, the quality of OpenCL implementations is sometimes inconsistent, particularly for Intel Integrated Graphics and for AMD GPUs that are older than several years, so it might not work for very old machines, as well as specific buggy newer AMD GPUs, see also [Issues with specific GPUs or GPU drivers](#issues-with-specific-gpus-or-gpu-drivers).
-  * CUDA is a GPU backend specific to NVIDIA GPUs (it will not work with AMD or Intel or any other GPUs) and requires installing [CUDA](https://developer.nvidia.com/cuda-zone) and [CUDNN](https://developer.nvidia.com/cudnn) and a modern NVIDIA GPU. On most GPUs, the OpenCL implementation will actually beat NVIDIA's own CUDA/CUDNN at performance. The exception is for top-end NVIDIA GPUs that support FP16 and tensor cores, in which case sometimes one is better and sometimes the other is better.
-  * TensorRT is similar to CUDA, but only uses NVIDIA's TensorRT framework to run the neural network with more optimized kernels. For modern NVIDIA GPUs, it should work whenever CUDA does and will usually be faster than CUDA or any other backend.
-  * Eigen is a *CPU* backend that should work widely *without* needing a GPU or fancy drivers. Use this if you don't have a good GPU or really any GPU at all. It will be quite significantly slower than OpenCL or CUDA, but on a good CPU can still often get 10 to 20 playouts per second if using the smaller (15 or 20) block neural nets. Eigen can also be compiled with AVX2 and FMA support, which can provide a big performance boost for Intel and AMD CPUs from the last few years. However, it will not run at all on older CPUs (and possibly even some recent but low-power modern CPUs) that don't support these fancy vector instructions.
+更详细地：
+  * OpenCL 是一个通用 GPU 后端，应该能够与任何支持 [OpenCL](https://en.wikipedia.org/wiki/OpenCL) 的 GPU 或加速器一起运行，包括 NVIDIA GPU、AMD GPU，以及基于 CPU 的 OpenCL 实现或 Intel 集成显卡等。这是 KataGo 最通用的 GPU 版本，不需要像 CUDA 那样复杂的安装，所以只要您有相当现代的 GPU，最有可能开箱即用。**但是，它也需要在第一次运行时花一些时间来调优自己。** 对于许多系统，这将需要5-30秒，但在一些较旧/较慢的系统上，可能需要许多分钟或更长时间。此外，OpenCL 实现的质量有时不一致，特别是对于 Intel 集成显卡和几年前的 AMD GPU，所以它可能不适用于非常旧的机器，以及特定有问题的较新 AMD GPU，另请参阅[特定GPU或驱动问题](#特定gpu或驱动问题)。
+  * CUDA 是特定于 NVIDIA GPU 的 GPU 后端（它不适用于 AMD 或 Intel 或任何其他 GPU），需要安装 [CUDA](https://developer.nvidia.com/cuda-zone) 和 [CUDNN](https://developer.nvidia.com/cudnn) 以及现代 NVIDIA GPU。在大多数 GPU 上，OpenCL 实现实际上会在性能上击败 NVIDIA 自己的 CUDA/CUDNN。例外是支持 FP16 和张量核心的顶级 NVIDIA GPU，在这种情况下，有时一个更好，有时另一个更好。
+  * TensorRT 类似于 CUDA，但仅使用 NVIDIA 的 TensorRT 框架来运行具有更优化内核的神经网络。对于现代 NVIDIA GPU，它应该在 CUDA 工作的任何地方工作，并且通常比 CUDA 或任何其他后端更快。
+  * Eigen 是一个 *CPU* 后端，应该广泛工作 *无需* GPU 或花哨的驱动程序。如果您没有好的 GPU 或根本没有 GPU，请使用此选项。它会比 OpenCL 或 CUDA 慢得多，但在好的 CPU 上，如果使用较小的（15或20）块神经网络，仍然经常可以获得每秒10到20次推演。Eigen 也可以用 AVX2 和 FMA 支持编译，这可以为过去几年的 Intel 和 AMD CPU 提供很大的性能提升。但是，它根本不会在不支持这些花哨向量指令的较旧 CPU（甚至可能一些最近但低功耗的现代 CPU）上运行。
 
-For **any** implementation, it's recommended that you also tune the number of threads used if you care about optimal performance, as it can make a factor of 2-3 difference in the speed. See "Tuning for Performance" below. However, if you mostly just want to get it working, then the default untuned settings should also be still reasonable.
+对于**任何**实现，如果您关心最佳性能，建议您也调优使用的线程数，因为它可以在速度上产生2-3倍的差异。请参阅下面的"性能调优"。但是，如果您主要只是想让它工作，那么默认的未调优设置也应该仍然合理。
 
-### How To Use
-KataGo is just an engine and does not have its own graphical interface. So generally you will want to use KataGo along with a [GUI or analysis program](#guis).
-If you encounter any problems while setting this up, check out [Common Questions and Issues](#common-questions-and-issues).
+### 使用方法
+KataGo 只是一个引擎，没有自己的图形界面。因此，通常您需要将 KataGo 与 [GUI 或分析程序](#图形界面) 一起使用。
+如果您在设置过程中遇到任何问题，请查看[常见问题](#常见问题)。
 
-**First**: Run a command like this to make sure KataGo is working, with the neural net file you [downloaded](https://github.com/lightvector/KataGo/releases/tag/v1.4.5). On OpenCL, it will also tune for your GPU.
+**首先**：运行这样的命令来确保 KataGo 正在工作，使用您[下载](https://github.com/lightvector/KataGo/releases/tag/v1.4.5)的神经网络文件。在 OpenCL 上，它也会为您的 GPU 调优。
 ```
 ./katago.exe benchmark                                                   # if you have default_gtp.cfg and default_model.bin.gz
 ./katago.exe benchmark -model <NEURALNET>.bin.gz                         # if you have default_gtp.cfg
