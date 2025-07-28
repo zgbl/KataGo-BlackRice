@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
-交互式SGF分析工具
-允许用户输入SGF内容或选择预设局面进行KataGo分析
+修复版本的交互式SGF分析工具
+正确解析SGF格式并与KataGo Docker容器交互
 """
 
 import json
 import subprocess
 import re
 import sys
+import time
 
 def send_analysis_to_docker(query_data, container_name="katago-analysis"):
     """向Docker容器发送分析请求"""
@@ -42,52 +43,61 @@ def send_analysis_to_docker(query_data, container_name="katago-analysis"):
         return None, f"错误: {e}"
 
 def parse_sgf_moves(sgf_content):
-    """解析SGF内容中的着法"""
+    """解析SGF内容中的着法 - 修复版本"""
     moves = []
     
-    # 清理SGF内容，移除换行和多余空格
+    # 清理SGF内容
     sgf_content = re.sub(r'\s+', ' ', sgf_content.strip())
+    print(f"清理后的SGF内容: {sgf_content[:200]}...")
     
-    # 更强大的SGF解析 - 查找 ;B[xx] 和 ;W[xx] 模式
-    # 支持空着法 ;B[] 和 ;W[]
-    move_pattern = r';([BW])\[([a-s]{0,2})\]'
+    # 更精确的SGF解析正则表达式
+    # 匹配 ;B[xx] 或 ;W[xx] 格式，包括空着法
+    move_pattern = r';([BW])\[([a-t]*)\]'
     matches = re.findall(move_pattern, sgf_content, re.IGNORECASE)
     
-    print(f"调试: 找到 {len(matches)} 个匹配项")
+    print(f"找到 {len(matches)} 个着法匹配项")
     
-    for color, pos in matches:
+    for i, (color, pos) in enumerate(matches):
         color = color.upper()
-        pos = pos.lower()
+        pos = pos.lower().strip()
         
-        if pos and len(pos) == 2:  # 非空着法且格式正确
-            # 将SGF坐标转换为KataGo格式
+        print(f"处理第{i+1}个着法: {color}[{pos}]")
+        
+        if pos and len(pos) == 2:  # 正常着法
             try:
-                # SGF坐标: a-s (跳过i), 从左下角开始
-                col_sgf = pos[0]
-                row_sgf = pos[1]
+                # SGF坐标转换为KataGo坐标
+                col_sgf = pos[0]  # a-s
+                row_sgf = pos[1]  # a-s
+                
+                # 检查坐标范围
+                if col_sgf < 'a' or col_sgf > 's' or row_sgf < 'a' or row_sgf > 's':
+                    print(f"  跳过无效坐标: {pos}")
+                    continue
                 
                 # 转换列坐标 (a-s -> A-T, 跳过I)
-                col_num = ord(col_sgf) - ord('a')
-                if col_num >= 8:  # 跳过i (第9个字母)
-                    col_katago = chr(ord('A') + col_num + 1)
+                col_index = ord(col_sgf) - ord('a')  # 0-18
+                if col_index >= 8:  # i及之后的字母
+                    col_katago = chr(ord('A') + col_index + 1)  # 跳过I
                 else:
-                    col_katago = chr(ord('A') + col_num)
+                    col_katago = chr(ord('A') + col_index)
                 
-                # 转换行坐标 (SGF从下往上，KataGo从上往下)
-                row_num = ord(row_sgf) - ord('a')
-                row_katago = str(19 - row_num)
+                # 转换行坐标 (SGF的a=19行, s=1行)
+                row_index = ord(row_sgf) - ord('a')  # 0-18
+                row_katago = str(19 - row_index)
                 
                 katago_pos = col_katago + row_katago
                 moves.append([color, katago_pos])
-                print(f"调试: {color} {pos} -> {katago_pos}")
+                print(f"  转换成功: {color} {pos} -> {katago_pos}")
                 
             except Exception as e:
-                print(f"调试: 转换坐标失败 {pos}: {e}")
+                print(f"  转换失败 {pos}: {e}")
                 continue
-        elif not pos:
-            # 空着法 (pass)
+                
+        elif not pos:  # 空着法
             moves.append([color, "pass"])
-            print(f"调试: {color} pass")
+            print(f"  空着法: {color} pass")
+        else:
+            print(f"  跳过格式错误的着法: {pos}")
     
     return moves
 
@@ -119,30 +129,28 @@ def display_analysis_result(result):
         print(f"  分差: {root.get('scoreLead', 0):+.1f}")
         print(f"  总访问: {root.get('visits', 0)}")
 
-def get_preset_positions():
-    """获取预设局面"""
-    return {
-        "1": {
-            "name": "空棋盘",
-            "moves": []
-        },
-        "2": {
-            "name": "星小目开局",
-            "moves": [["B", "D4"], ["W", "Q16"], ["B", "P4"], ["W", "D16"]]
-        },
-        "3": {
-            "name": "中国流布局",
-            "moves": [["B", "Q4"], ["W", "D4"], ["B", "P16"], ["W", "Q16"], ["B", "R14"]]
-        },
-        "4": {
-            "name": "小林流",
-            "moves": [["B", "R4"], ["W", "D4"], ["B", "C16"], ["W", "Q16"], ["B", "C6"]]
-        }
-    }
+def test_sgf_parsing():
+    """测试SGF解析功能"""
+    test_sgf = """(;FF[4]
+CA[UTF-8]
+GM[1]
+DT[2024-03-13]
+;B[pp]
+;W[dd]
+;B[qd]
+;W[dp]
+;B[od]
+;W[qq])"""
+    
+    print("=== 测试SGF解析 ===")
+    print(f"测试SGF: {test_sgf}")
+    moves = parse_sgf_moves(test_sgf)
+    print(f"解析结果: {moves}")
+    return moves
 
 def main():
     """主函数"""
-    print("🔍 KataGo 交互式SGF分析工具")
+    print("🔍 KataGo 交互式SGF分析工具 (修复版)")
     print("=" * 50)
     
     # 检查Docker容器
@@ -155,15 +163,17 @@ def main():
             print("❌ Docker容器 katago-analysis 未运行")
             print("请先运行: docker-compose up katago-analysis")
             return
+        else:
+            print("✅ Docker容器运行正常")
     except:
         print("❌ 无法检查Docker状态")
         return
     
     while True:
         print("\n请选择分析方式:")
-        print("1. 预设局面")
+        print("1. 测试SGF解析")
         print("2. 输入SGF内容")
-        print("3. 手动输入着法")
+        print("3. 预设局面测试")
         print("0. 退出")
         
         choice = input("\n请输入选择 (0-3): ").strip()
@@ -173,78 +183,58 @@ def main():
             break
             
         elif choice == "1":
-            # 预设局面
-            presets = get_preset_positions()
-            print("\n可用的预设局面:")
-            for key, preset in presets.items():
-                print(f"  {key}. {preset['name']}")
-                
-            preset_choice = input("\n请选择预设局面: ").strip()
-            if preset_choice in presets:
-                preset = presets[preset_choice]
-                moves = preset['moves']
-                print(f"\n分析局面: {preset['name']}")
-                print(f"着法序列: {moves}")
-            else:
-                print("无效选择")
-                continue
-                
+            # 测试SGF解析
+            moves = test_sgf_parsing()
+            
         elif choice == "2":
             # SGF内容
-            print("\n请输入SGF内容 (可以是完整SGF或部分内容):")
-            sgf_content = input().strip()
+            print("\n请输入SGF内容:")
+            print("提示: 可以直接粘贴完整的SGF文件内容")
             
-            if not sgf_content:
+            # 支持多行输入
+            print("输入SGF内容 (输入空行结束):")
+            sgf_lines = []
+            while True:
+                line = input()
+                if not line.strip():
+                    break
+                sgf_lines.append(line)
+            
+            sgf_content = '\n'.join(sgf_lines)
+            
+            if not sgf_content.strip():
                 print("SGF内容不能为空")
                 continue
                 
             moves = parse_sgf_moves(sgf_content)
-            print(f"\n解析到 {len(moves)} 手棋:")
-            for i, move in enumerate(moves):
+            print(f"\n✅ 解析到 {len(moves)} 手棋:")
+            for i, move in enumerate(moves[:10]):  # 只显示前10手
                 print(f"  {i+1}. {move[0]} {move[1]}")
+            if len(moves) > 10:
+                print(f"  ... 还有 {len(moves)-10} 手")
                 
         elif choice == "3":
-            # 手动输入
-            print("\n请输入着法序列 (格式: B D4, W Q16, ...)")
-            print("输入 'done' 完成输入")
+            # 预设局面
+            moves = [["B", "Q4"], ["W", "D4"], ["B", "P16"], ["W", "Q16"]]
+            print(f"使用预设局面: {moves}")
             
-            moves = []
-            while True:
-                move_input = input(f"第{len(moves)+1}手: ").strip()
-                if move_input.lower() == 'done':
-                    break
-                    
-                try:
-                    parts = move_input.split()
-                    if len(parts) == 2:
-                        color, pos = parts
-                        if color.upper() in ['B', 'W']:
-                            moves.append([color.upper(), pos.upper()])
-                            print(f"  添加: {color.upper()} {pos.upper()}")
-                        else:
-                            print("颜色必须是 B 或 W")
-                    else:
-                        print("格式错误，请输入: 颜色 位置 (如: B D4)")
-                except:
-                    print("输入格式错误")
-                    
         else:
             print("无效选择")
             continue
         
         # 执行分析
-        if 'moves' in locals():
+        if 'moves' in locals() and moves:
             print(f"\n🔄 正在分析局面... (共{len(moves)}手)")
             
             query = {
-                "id": f"interactive_analysis_{int(time.time()) if 'time' in dir() else 1}",
+                "id": f"sgf_analysis_{int(time.time())}",
                 "moves": moves,
                 "rules": "tromp-taylor",
                 "komi": 7.5,
                 "boardXSize": 19,
                 "boardYSize": 19,
                 "analyzeTurns": [len(moves)],
-                "maxVisits": 1000,
+                "maxVisits": 500,  # 减少访问次数以加快分析
                 "includeOwnership": True,
                 "includePolicy": True,
                 "includeMovesOwnership": False
@@ -256,7 +246,8 @@ def main():
                 display_analysis_result(result)
             else:
                 print(f"❌ 分析失败: {error}")
+        elif 'moves' in locals() and not moves:
+            print("⚠️  没有解析到有效着法，请检查SGF格式")
 
 if __name__ == "__main__":
-    import time
     main()
