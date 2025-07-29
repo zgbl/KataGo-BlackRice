@@ -10,32 +10,32 @@ import time
 
 # 全局设置 - 调整为更合理的值
 ANALYSIS_SETTINGS = {
-    'max_visits': 100,      # 默认访问次数
-    'max_time': 15.0,       # 默认最大分析时间(秒) - 增加到15秒
-    'timeout': 20           # 默认超时时间(秒) - 增加到20秒
+    'max_visits': 200,      # 默认访问次数
+    'max_time': 3.0,        # 默认最大分析时间(秒) - 3秒一步
+    'timeout': 5            # 默认超时时间(秒)
 }
 
 def check_docker_status():
     """检查Docker容器状态"""
     try:
         result = subprocess.run(
-            ["docker", "ps", "--filter", "name=katago-analysis", "--format", "{{.Names}}\t{{.Status}}"],
+            ["docker", "ps", "--filter", "name=katago-gpu", "--format", "{{.Names}}\t{{.Status}}"],
             capture_output=True, text=True, timeout=10
         )
         
-        if result.returncode == 0 and "katago-analysis" in result.stdout:
+        if result.returncode == 0 and "katago-gpu" in result.stdout:
             print(f"✅ Docker容器状态: {result.stdout.strip()}")
             return True
         else:
             print("❌ Docker容器未运行或不存在")
-            print("请先启动容器: docker run -d --name katago-analysis ...")
+            print("请先启动容器: docker-compose up -d katago-gpu")
             return False
             
     except Exception as e:
         print(f"❌ 检查Docker状态失败: {e}")
         return False
 
-def send_single_move_analysis(moves, move_number, container_name="katago-analysis", debug=False):
+def send_single_move_analysis(moves, move_number, container_name="katago-gpu", debug=False):
     """分析单独一手棋的局面"""
     try:
         # 只分析到指定手数的局面
@@ -325,7 +325,7 @@ def analyze_step_by_step(moves, start_from=1, end_at=None, debug_mode=False):
                 display_winrate = 1 - winrate  # 白棋胜率 = 1 - 黑棋胜率
                 player_name = "白"
             
-            print(f"   {color_indicator} {player_name}方胜率: {display_winrate:.1%} | 分差: {score_lead:+.1f} | 访问: {visits} | 推荐: {best_move}")
+            print(f"   {color_indicator} {player_name}方胜率: {display_winrate:.1%} | 分差: {score_lead:+.1f} | PO: {visits} | 推荐: {best_move}")
             
             # 保存结果
             results.append({

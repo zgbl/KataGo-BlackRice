@@ -1,11 +1,20 @@
 # 多阶段构建 - 构建阶段
-FROM ubuntu:22.04 AS builder
+# 支持多平台：使用条件基础镜像
+ARG BASE_IMAGE=ubuntu:22.04
+FROM ${BASE_IMAGE} AS builder
 
 # 设置环境变量避免交互式安装
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=UTC
 
-# 安装构建依赖
+# 构建参数
+ARG USE_BACKEND=EIGEN
+ARG USE_TCMALLOC=1
+ARG USE_AVX2=0
+ARG BUILD_DISTRIBUTED=0
+ARG TARGETPLATFORM
+
+# 安装基础构建依赖
 RUN apt-get update && apt-get install -y \
     build-essential \
     cmake \
@@ -17,10 +26,43 @@ RUN apt-get update && apt-get install -y \
     libeigen3-dev \
     libssl-dev \
     libgoogle-perftools-dev \
-    ocl-icd-opencl-dev \
-    opencl-headers \
-    clinfo \
+    wget \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+# 条件安装CUDA支持（仅在需要时）
+RUN if [ "$USE_BACKEND" = "CUDA" ] || [ "$USE_BACKEND" = "TENSORRT" ]; then \
+        apt-get update && apt-get install -y \
+        software-properties-common \
+        && wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb \
+        && dpkg -i cuda-keyring_1.1-1_all.deb \
+        && apt-get update \
+        && apt-get install -y \
+        cuda-toolkit-12-9 \
+        && rm -rf /var/lib/apt/lists/* \
+        && rm cuda-keyring_1.1-1_all.deb; \
+    fi
+
+# 条件安装cuDNN（仅在CUDA后端时）
+RUN if [ "$USE_BACKEND" = "CUDA" ] || [ "$USE_BACKEND" = "TENSORRT" ]; then \
+        wget https://developer.download.nvidia.com/compute/cudnn/redist/cudnn/linux-x86_64/cudnn-linux-x86_64-9.6.0.74_cuda12-archive.tar.xz \
+        && tar -xf cudnn-linux-x86_64-9.6.0.74_cuda12-archive.tar.xz \
+        && cp cudnn-linux-x86_64-9.6.0.74_cuda12-archive/include/cudnn*.h /usr/local/cuda/include/ \
+        && cp cudnn-linux-x86_64-9.6.0.74_cuda12-archive/lib/libcudnn* /usr/local/cuda/lib64/ \
+        && chmod a+r /usr/local/cuda/include/cudnn*.h /usr/local/cuda/lib64/libcudnn* \
+        && rm -rf cudnn-linux-x86_64-9.6.0.74_cuda12-archive* \
+        && echo '/usr/local/cuda/lib64' >> /etc/ld.so.conf.d/cuda.conf \
+        && ldconfig; \
+    fi
+
+# 条件安装OpenCL支持（仅在需要时）
+RUN if [ "$USE_BACKEND" = "OPENCL" ]; then \
+        apt-get update && apt-get install -y \
+        ocl-icd-opencl-dev \
+        opencl-headers \
+        clinfo \
+        && rm -rf /var/lib/apt/lists/*; \
+    fi
 
 # 设置工作目录
 WORKDIR /app
@@ -28,43 +70,87 @@ WORKDIR /app
 # 复制源代码
 COPY . .
 
-# 构建参数
-ARG USE_BACKEND=EIGEN
-ARG USE_TCMALLOC=1
-ARG USE_AVX2=0
-ARG BUILD_DISTRIBUTED=0
-
 # 编译KataGo
 WORKDIR /app/cpp
-RUN cmake . \
-    -G Ninja \
-    -DUSE_BACKEND=${USE_BACKEND} \
-    -DUSE_TCMALLOC=${USE_TCMALLOC} \
-    -DUSE_AVX2=${USE_AVX2} \
-    -DBUILD_DISTRIBUTED=${BUILD_DISTRIBUTED} \
-    -DCMAKE_BUILD_TYPE=Release \
-    && ninja
+
+# 设置CUDA环境变量（如果使用CUDA）
+RUN if [ "$USE_BACKEND" = "CUDA" ] || [ "$USE_BACKEND" = "TENSORRT" ]; then \
+        export PATH=/usr/local/cuda/bin:$PATH \
+        && export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH; \
+    fi
+
+# 条件编译：根据后端类型进行编译
+RUN if [ "$USE_BACKEND" = "CUDA" ] || [ "$USE_BACKEND" = "TENSORRT" ]; then \
+        export PATH=/usr/local/cuda/bin:$PATH \
+        && export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH \
+        && cmake . \
+            -G Ninja \
+            -DUSE_BACKEND=${USE_BACKEND} \
+            -DUSE_TCMALLOC=${USE_TCMALLOC} \
+            -DUSE_AVX2=${USE_AVX2} \
+            -DBUILD_DISTRIBUTED=${BUILD_DISTRIBUTED} \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCUDA_TOOLKIT_ROOT_DIR=/usr/local/cuda \
+            -DCUDNN_INCLUDE_DIR=/usr/local/cuda/include \
+            -DCUDNN_LIBRARY=/usr/local/cuda/lib64/libcudnn.so \
+        && ninja; \
+    else \
+        cmake . \
+            -G Ninja \
+            -DUSE_BACKEND=${USE_BACKEND} \
+            -DUSE_TCMALLOC=${USE_TCMALLOC} \
+            -DUSE_AVX2=${USE_AVX2} \
+            -DBUILD_DISTRIBUTED=${BUILD_DISTRIBUTED} \
+            -DCMAKE_BUILD_TYPE=Release \
+        && ninja; \
+    fi
 
 # 运行阶段
-FROM ubuntu:22.04 AS runtime
+ARG BASE_IMAGE=ubuntu:22.04
+FROM ${BASE_IMAGE} AS runtime
 
 # 设置环境变量
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=UTC
 
-# 安装运行时依赖
+# 传递构建参数到运行时
+ARG USE_BACKEND=EIGEN
+
+# 安装基础运行时依赖
 RUN apt-get update && apt-get install -y \
     libzip4 \
     zlib1g \
     libssl3 \
     libgoogle-perftools4 \
-    ocl-icd-libopencl1 \
-    clinfo \
     curl \
     wget \
     python3 \
     python3-pip \
     && rm -rf /var/lib/apt/lists/*
+
+# 条件安装CUDA运行时（仅在CUDA后端时）
+RUN if [ "$USE_BACKEND" = "CUDA" ] || [ "$USE_BACKEND" = "TENSORRT" ]; then \
+        apt-get update && apt-get install -y \
+        software-properties-common \
+        && wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb \
+        && dpkg -i cuda-keyring_1.1-1_all.deb \
+        && apt-get update \
+        && apt-get install -y \
+        cuda-runtime-12-9 \
+        libcudnn9-cuda-12 \
+        && rm -rf /var/lib/apt/lists/* \
+        && rm cuda-keyring_1.1-1_all.deb \
+        && echo '/usr/local/cuda/lib64' >> /etc/ld.so.conf.d/cuda.conf \
+        && ldconfig; \
+    fi
+
+# 条件安装OpenCL运行时（仅在OpenCL后端时）
+RUN if [ "$USE_BACKEND" = "OPENCL" ]; then \
+        apt-get update && apt-get install -y \
+        ocl-icd-libopencl1 \
+        clinfo \
+        && rm -rf /var/lib/apt/lists/*; \
+    fi
 
 # 安装Python依赖（用于分析引擎示例）
 RUN pip3 install --no-cache-dir \

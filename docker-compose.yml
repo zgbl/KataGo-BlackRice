@@ -1,23 +1,21 @@
 version: '3.8'
 
 services:
-  katago-analysis:
+  # CPU版本 - 适用于Mac和Windows（无GPU）
+  katago-cpu:
     build:
       context: .
       dockerfile: Dockerfile
       args:
-        USE_BACKEND: EIGEN  # 可选: EIGEN, OPENCL, CUDA
+        USE_BACKEND: EIGEN
         USE_TCMALLOC: 1
-        USE_AVX2: 0  # 在Mac上设为0，在支持AVX2的x86机器上可设为1
+        USE_AVX2: 1  # 现代CPU都支持AVX2
         BUILD_DISTRIBUTED: 0
-    container_name: katago-analysis
+    container_name: katago-cpu
     volumes:
-      # 挂载模型文件目录
       - ./models:/app/models:ro
-      # 挂载日志目录
       - ./logs:/app/logs
       - ./analysis_logs:/app/analysis_logs
-      # 挂载自定义配置（可选）
       - ./configs:/app/configs/custom:ro
     environment:
       - TZ=Asia/Shanghai
@@ -26,16 +24,74 @@ services:
     command: /app/start_analysis.sh
     restart: unless-stopped
 
-  katago-gtp:
+  # GPU版本 - 适用于Windows和Linux（带NVIDIA GPU）
+  katago-gpu:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        USE_BACKEND: CUDA
+        USE_TCMALLOC: 1
+        USE_AVX2: 1
+        BUILD_DISTRIBUTED: 0
+    container_name: katago-gpu
+    volumes:
+      - ./models:/app/models:ro
+      - ./logs:/app/logs
+      - ./analysis_logs:/app/analysis_logs
+      - ./configs:/app/configs/custom:ro
+    environment:
+      - TZ=Asia/Shanghai
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    stdin_open: true
+    tty: true
+    command: /app/start_analysis.sh
+    restart: unless-stopped
+
+  # OpenCL版本 - 适用于AMD GPU或Intel GPU
+  katago-opencl:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        USE_BACKEND: OPENCL
+        USE_TCMALLOC: 1
+        USE_AVX2: 1
+        BUILD_DISTRIBUTED: 0
+    container_name: katago-opencl
+    volumes:
+      - ./models:/app/models:ro
+      - ./logs:/app/logs
+      - ./analysis_logs:/app/analysis_logs
+      - ./configs:/app/configs/custom:ro
+      # 挂载OpenCL设备
+      - /dev/dri:/dev/dri
+    environment:
+      - TZ=Asia/Shanghai
+    stdin_open: true
+    tty: true
+    command: /app/start_analysis.sh
+    restart: unless-stopped
+
+  # GTP引擎 - CPU版本
+  katago-gtp-cpu:
     build:
       context: .
       dockerfile: Dockerfile
       args:
         USE_BACKEND: EIGEN
         USE_TCMALLOC: 1
-        USE_AVX2: 0
+        USE_AVX2: 1
         BUILD_DISTRIBUTED: 0
-    container_name: katago-gtp
+    container_name: katago-gtp-cpu
     volumes:
       - ./models:/app/models:ro
       - ./logs:/app/logs
@@ -47,14 +103,46 @@ services:
     command: /app/start_gtp.sh
     restart: unless-stopped
 
+  # GTP引擎 - GPU版本
+  katago-gtp-gpu:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        USE_BACKEND: CUDA
+        USE_TCMALLOC: 1
+        USE_AVX2: 1
+        BUILD_DISTRIBUTED: 0
+    container_name: katago-gtp-gpu
+    volumes:
+      - ./models:/app/models:ro
+      - ./logs:/app/logs
+      - ./configs:/app/configs/custom:ro
+    environment:
+      - TZ=Asia/Shanghai
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    stdin_open: true
+    tty: true
+    command: /app/start_gtp.sh
+    restart: unless-stopped
+
+  # 开发环境 - 支持多后端切换
   katago-dev:
     build:
       context: .
       dockerfile: Dockerfile
       args:
-        USE_BACKEND: EIGEN
+        USE_BACKEND: ${KATAGO_BACKEND:-EIGEN}
         USE_TCMALLOC: 1
-        USE_AVX2: 0
+        USE_AVX2: 1
         BUILD_DISTRIBUTED: 0
     container_name: katago-dev
     volumes:
@@ -63,8 +151,20 @@ services:
       - ./analysis_logs:/app/analysis_logs
       - ./configs:/app/configs/custom:ro
       - ./python_examples:/app/python_examples
+      # 挂载源代码用于开发
+      - ./cpp:/app/cpp:ro
+      - ./python:/app/python:ro
     environment:
       - TZ=Asia/Shanghai
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     stdin_open: true
     tty: true
     command: /bin/bash

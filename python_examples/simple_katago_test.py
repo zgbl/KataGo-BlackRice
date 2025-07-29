@@ -14,28 +14,28 @@ def test_docker_connection():
     try:
         # 1. 检查容器是否运行
         result = subprocess.run(
-            ["docker", "ps", "--filter", "name=katago-analysis"],
+            ["docker", "ps", "--filter", "name=katago-gpu"],
             capture_output=True, text=True, timeout=10
         )
         print(f"容器状态检查: {result.stdout.strip()}")
         
         # 2. 测试容器内部命令
         result = subprocess.run(
-            ["docker", "exec", "katago-analysis", "ls", "/app"],
+            ["docker", "exec", "katago-gpu", "ls", "/app"],
             capture_output=True, text=True, timeout=10
         )
         print(f"容器内部文件: {result.stdout.strip()}")
         
         # 3. 测试KataGo可执行文件
         result = subprocess.run(
-            ["docker", "exec", "katago-analysis", "which", "katago"],
+            ["docker", "exec", "katago-gpu", "which", "katago"],
             capture_output=True, text=True, timeout=10
         )
         print(f"KataGo路径: {result.stdout.strip()}")
         
         # 4. 测试KataGo版本
         result = subprocess.run(
-            ["docker", "exec", "katago-analysis", "katago", "version"],
+            ["docker", "exec", "katago-gpu", "katago", "version"],
             capture_output=True, text=True, timeout=15
         )
         print(f"KataGo版本: {result.stdout.strip()}")
@@ -68,7 +68,7 @@ def test_simple_analysis():
     try:
         # 使用更简单的命令格式
         cmd = [
-            "docker", "exec", "-i", "katago-analysis",
+            "docker", "exec", "-i", "katago-gpu",
             "sh", "-c", 
             f"echo '{query_json}' | timeout 30 katago analysis -config /app/configs/analysis_example.cfg -model /app/models/model.bin.gz"
         ]
@@ -113,7 +113,7 @@ def test_direct_katago():
     try:
         # 直接在容器中运行KataGo help
         result = subprocess.run(
-            ["docker", "exec", "katago-analysis", "katago", "help"],
+            ["docker", "exec", "katago-gpu", "katago", "help"],
             capture_output=True, text=True, timeout=10
         )
         

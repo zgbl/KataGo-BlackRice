@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  # GPU版本 - Windows WSL2 修复版
+  katago-gpu:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        USE_BACKEND: CUDA
+        USE_TCMALLOC: 1
+        USE_AVX2: 1
+        BUILD_DISTRIBUTED: 0
+    container_name: katago-gpu
+    volumes:
+      - ./models:/app/models:ro
+      - ./logs:/app/logs
+      - ./analysis_logs:/app/analysis_logs
+      - ./configs:/app/configs/custom:ro
+    environment:
+      - TZ=Asia/Shanghai
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    # 使用 runtime 方式而不是 deploy 方式，更兼容 Windows
+    runtime: nvidia
+    stdin_open: true
+    tty: true
+    command: /app/start_analysis.sh
+    restart: unless-stopped
+
+  # GTP引擎 - GPU版本
+  katago-gtp-gpu:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        USE_BACKEND: CUDA
+        USE_TCMALLOC: 1
+        USE_AVX2: 1
+        BUILD_DISTRIBUTED: 0
+    container_name: katago-gtp-gpu
+    volumes:
+      - ./models:/app/models:ro
+      - ./logs:/app/logs
+      - ./configs:/app/configs/custom:ro
+    environment:
+      - TZ=Asia/Shanghai
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    runtime: nvidia
+    stdin_open: true
+    tty: true
+    command: /app/start_gtp.sh
+    restart: unless-stopped

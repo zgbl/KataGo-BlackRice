@@ -20,23 +20,23 @@ def check_docker_status():
     """检查Docker容器状态"""
     try:
         result = subprocess.run(
-            ["docker", "ps", "--filter", "name=katago-analysis", "--format", "{{.Names}}\t{{.Status}}"],
+            ["docker", "ps", "--filter", "name=katago-gpu", "--format", "{{.Names}}\t{{.Status}}"],
             capture_output=True, text=True, timeout=10
         )
         
-        if result.returncode == 0 and "katago-analysis" in result.stdout:
+        if result.returncode == 0 and "katago-gpu" in result.stdout:
             print(f"✅ Docker容器状态: {result.stdout.strip()}")
             return True
         else:
             print("❌ Docker容器未运行或不存在")
-            print("请先启动容器: docker run -d --name katago-analysis ...")
+            print("请先启动容器: docker run -d --name katago-gpu ...")
             return False
             
     except Exception as e:
         print(f"❌ 检查Docker状态失败: {e}")
         return False
 
-def send_single_move_analysis(moves, move_number, container_name="katago-analysis", debug=False):
+def send_single_move_analysis(moves, move_number, container_name="katago-gpu", debug=False):
     """分析单独一手棋的局面 - 修复版本"""
     try:
         # 只分析到指定手数的局面
@@ -194,7 +194,7 @@ def test_basic_analysis():
     
     try:
         cmd = [
-            "docker", "exec", "-i", "katago-analysis",
+            "docker", "exec", "-i", "katago-gpu",
             "katago", "analysis",
             "-config", "/app/configs/analysis_example.cfg",
             "-model", "/app/models/model.bin.gz"
@@ -495,7 +495,7 @@ def diagnose_katago():
     print("\n2. 检查配置文件...")
     try:
         result = subprocess.run([
-            "docker", "exec", "katago-analysis",
+            "docker", "exec", "katago-gpu",
             "cat", "/app/configs/analysis_example.cfg"
         ], capture_output=True, text=True, timeout=10)
         
@@ -523,7 +523,7 @@ def diagnose_katago():
     print("\n3. 检查模型文件...")
     try:
         result = subprocess.run([
-            "docker", "exec", "katago-analysis",
+            "docker", "exec", "katago-gpu",
             "ls", "-la", "/app/models/"
         ], capture_output=True, text=True, timeout=10)
         
@@ -545,7 +545,7 @@ def diagnose_katago():
     
     try:
         result = subprocess.run([
-            "docker", "exec", "-i", "katago-analysis",
+            "docker", "exec", "-i", "katago-gpu",
             "timeout", "15",
             "katago", "analysis",
             "-config", "/app/configs/analysis_example.cfg",
