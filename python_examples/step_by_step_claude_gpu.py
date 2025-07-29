@@ -144,11 +144,9 @@ numSearchThreads = 16
 
         if debug:
             print("---START STDERR---")
-            print(result.stderr)
+            print(result.stderr[:500] + ("..." if len(result.stderr) > 500 else ""))
             print("---END STDERR---")
-            print("---START STDOUT---")
-            print(result.stdout)
-            print("---END STDOUT---")
+            # 不显示完整的stdout，因为包含大量JSON数据
 
         # 尝试解析KataGo的JSON响应
         # KataGo会将stderr和stdout混合输出，我们需要从混合输出中找到JSON行
@@ -161,7 +159,10 @@ numSearchThreads = 16
                 try:
                     analysis_data = json.loads(line)
                     if debug:
-                        print(f"   调试: 成功解析JSON响应: {analysis_data.get('id', '未知ID')}")
+                        # 只显示关键信息，不显示完整JSON
+                        visits = analysis_data.get('rootInfo', {}).get('visits', 0)
+                        winrate = analysis_data.get('rootInfo', {}).get('winrate', 0) * 100
+                        print(f"   调试: 成功解析JSON - ID: {analysis_data.get('id', '未知ID')}, visits: {visits}, winrate: {winrate:.1f}%")
                     break # Found the JSON data, stop searching
                 except json.JSONDecodeError:
                     continue # Not a valid JSON line
