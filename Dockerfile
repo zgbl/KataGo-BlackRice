@@ -1,5 +1,6 @@
 # 多阶段构建 - 构建阶段
 # 支持多平台：使用条件基础镜像
+ARG USE_BACKEND=EIGEN
 ARG BASE_IMAGE=ubuntu:22.04
 FROM ${BASE_IMAGE} AS builder
 
@@ -106,6 +107,7 @@ RUN if [ "$USE_BACKEND" = "CUDA" ] || [ "$USE_BACKEND" = "TENSORRT" ]; then \
     fi
 
 # 运行阶段
+ARG USE_BACKEND=EIGEN
 ARG BASE_IMAGE=ubuntu:22.04
 FROM ${BASE_IMAGE} AS runtime
 
@@ -128,19 +130,10 @@ RUN apt-get update && apt-get install -y \
     python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
-# 条件安装CUDA运行时（仅在CUDA后端时）
+# CUDA运行时已包含在基础镜像中（当USE_BACKEND=CUDA时）
+# 确保CUDA库路径正确配置
 RUN if [ "$USE_BACKEND" = "CUDA" ] || [ "$USE_BACKEND" = "TENSORRT" ]; then \
-        apt-get update && apt-get install -y \
-        software-properties-common \
-        && wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb \
-        && dpkg -i cuda-keyring_1.1-1_all.deb \
-        && apt-get update \
-        && apt-get install -y \
-        cuda-runtime-12-9 \
-        libcudnn9-cuda-12 \
-        && rm -rf /var/lib/apt/lists/* \
-        && rm cuda-keyring_1.1-1_all.deb \
-        && echo '/usr/local/cuda/lib64' >> /etc/ld.so.conf.d/cuda.conf \
+        echo '/usr/local/cuda/lib64' >> /etc/ld.so.conf.d/cuda.conf \
         && ldconfig; \
     fi
 
@@ -171,24 +164,9 @@ COPY --from=builder /app/docs/Analysis_Engine.md /app/docs/
 # 创建必要的目录
 RUN mkdir -p /app/models /app/logs /app/analysis_logs
 
-# 创建启动脚本
-RUN echo '#!/bin/bash' > /app/start_analysis.sh && \
-    echo '' >> /app/start_analysis.sh && \
-    echo '# 检查模型文件' >> /app/start_analysis.sh && \
-    echo 'if [ ! -f "/app/models/model.bin.gz" ]; then' >> /app/start_analysis.sh && \
-    echo '    echo "错误: 未找到模型文件 /app/models/model.bin.gz"' >> /app/start_analysis.sh && \
-    echo '    echo "请将模型文件挂载到容器的 /app/models/ 目录"' >> /app/start_analysis.sh && \
-    echo '    echo "示例: docker run -v /path/to/your/model.bin.gz:/app/models/model.bin.gz ..."' >> /app/start_analysis.sh && \
-    echo '    exit 1' >> /app/start_analysis.sh && \
-    echo 'fi' >> /app/start_analysis.sh && \
-    echo '' >> /app/start_analysis.sh && \
-    echo '# 启动分析引擎' >> /app/start_analysis.sh && \
-    echo 'echo "启动KataGo分析引擎..."' >> /app/start_analysis.sh && \
-    echo 'exec katago analysis \' >> /app/start_analysis.sh && \
-    echo '    -config /app/configs/analysis_example.cfg \' >> /app/start_analysis.sh && \
-    echo '    -model /app/models/model.bin.gz \' >> /app/start_analysis.sh && \
-    echo '    "$@"' >> /app/start_analysis.sh && \
-    chmod +x /app/start_analysis.sh
+# 复制启动脚本
+COPY http_server/scripts/start_http_server.sh /app/start_analysis.sh
+RUN chmod +x /app/start_analysis.sh
 
 # 创建GTP模式启动脚本
 RUN echo '#!/bin/bash' > /app/start_gtp.sh && \

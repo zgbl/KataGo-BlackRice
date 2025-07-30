@@ -4,7 +4,7 @@ services:
   # GPU版本 - Windows WSL2 修复版
   katago-gpu:
     build:
-      context: .
+      context: ../..
       dockerfile: Dockerfile
       args:
         USE_BACKEND: CUDA
@@ -13,10 +13,10 @@ services:
         BUILD_DISTRIBUTED: 0
     container_name: katago-gpu
     volumes:
-      - ./models:/app/models:ro
-      - ./logs:/app/logs
-      - ./analysis_logs:/app/analysis_logs
-      - ./configs:/app/configs/custom:ro
+      - ../../models:/app/models:ro
+      - ../../logs:/app/logs
+      - ../../analysis_logs:/app/analysis_logs
+      - ../configs:/app/configs/custom:ro
     environment:
       - TZ=Asia/Shanghai
       - NVIDIA_VISIBLE_DEVICES=all
@@ -31,7 +31,7 @@ services:
   # GTP引擎 - GPU版本
   katago-gtp-gpu:
     build:
-      context: .
+      context: ../..
       dockerfile: Dockerfile
       args:
         USE_BACKEND: CUDA
@@ -40,9 +40,9 @@ services:
         BUILD_DISTRIBUTED: 0
     container_name: katago-gtp-gpu
     volumes:
-      - ./models:/app/models:ro
-      - ./logs:/app/logs
-      - ./configs:/app/configs/custom:ro
+      - ../../models:/app/models:ro
+      - ../../logs:/app/logs
+      - ../configs:/app/configs/custom:ro
     environment:
       - TZ=Asia/Shanghai
       - NVIDIA_VISIBLE_DEVICES=all

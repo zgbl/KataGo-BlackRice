@@ -1,0 +1,83 @@
+# KataGo HTTP服务专用Dockerfile
+# 基于CUDA 12.9.1和Ubuntu 22.04构建，包含cuDNN
+
+FROM nvidia/cuda:12.9.1-cudnn-devel-ubuntu22.04
+
+# 设置环境变量
+ENV DEBIAN_FRONTEND=noninteractive
+ENV CUDA_VISIBLE_DEVICES=0
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+# 设置工作目录
+WORKDIR /app
+
+# 安装系统依赖（cuDNN已包含在基础镜像中）
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    cmake \
+    git \
+    libzip-dev \
+    zlib1g-dev \
+    python3 \
+    python3-pip \
+    python3-dev \
+    libboost-all-dev \
+    libtcmalloc-minimal4 \
+    google-perftools \
+    libgoogle-perftools-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# 创建必要的目录
+RUN mkdir -p /app/logs /app/models /app/configs /app/bin
+
+# 复制源代码
+COPY cpp/ /app/cpp/
+COPY python/ /app/python/
+
+# 编译KataGo（使用CUDA后端）
+RUN cd /app/cpp && \
+    cmake . -DUSE_BACKEND=CUDA -DUSE_TCMALLOC=1 -DBUILD_MCTS=1 \
+    -DCMAKE_BUILD_TYPE=Release -DUSE_AVX2=1 -DNO_GIT_REVISION=1 && \
+    make -j$(nproc) && \
+    cp katago /app/bin/
+
+# 安装Python依赖
+RUN pip3 install --no-cache-dir \
+    requests \
+    flask \
+    gunicorn \
+    numpy \
+    psutil \
+    prometheus-client
+
+# 复制HTTP服务配置
+COPY http_server/configs/katago_http.cfg /app/configs/
+
+# 复制启动脚本
+COPY http_server/scripts/start_http_server.sh /app/
+RUN chmod +x /app/start_http_server.sh
+
+# 添加 /app/bin 到 PATH
+ENV PATH="/app/bin:$PATH"
+
+# 创建健康检查脚本
+RUN echo '#!/bin/bash\n\
+curl -f http://localhost:8080/health || exit 1' > /app/healthcheck.sh && \
+    chmod +x /app/healthcheck.sh
+
+# 设置用户权限
+RUN useradd -m -u 1000 katago && \
+    chown -R katago:katago /app
+
+USER katago
+
+# 暴露端口
+EXPOSE 8080 8081
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD /app/healthcheck.sh
+
+# 启动命令
+CMD ["/app/start_http_server.sh"]

@@ -3,6 +3,7 @@
 """
 逐步分析完整棋谱 - GPU版本
 每步3秒分析，显示playout数量和详细信息
+支持本地Docker和远程IP访问
 """
 
 import json
@@ -11,6 +12,15 @@ import time
 import sys
 import os
 import re
+import requests
+
+# 连接配置
+CONNECTION_CONFIG = {
+    'use_remote': False,        # 是否使用远程IP访问
+    'remote_host': 'localhost', # 远程主机IP
+    'remote_port': 8080,        # 远程端口
+    'container_name': 'katago-gpu'  # 本地容器名称
+}
 
 # 分析设置 - 3秒一步
 ANALYSIS_SETTINGS = {
@@ -19,8 +29,30 @@ ANALYSIS_SETTINGS = {
     'timeout': 20           # 超时时间
 }
 
-# GPU容器名称
-CONTAINER_NAME = "katago-gpu"
+# 兼容性：保持原有变量名
+CONTAINER_NAME = CONNECTION_CONFIG['container_name']
+
+def check_connection():
+    """检查连接状态（本地容器或远程服务）"""
+    if CONNECTION_CONFIG['use_remote']:
+        return check_remote_katago()
+    else:
+        return check_gpu_container()
+
+def check_remote_katago():
+    """检查远程KataGo服务状态"""
+    try:
+        url = f"http://{CONNECTION_CONFIG['remote_host']}:{CONNECTION_CONFIG['remote_port']}/health"
+        response = requests.get(url, timeout=5)
+        if response.status_code == 200:
+            print(f"✅ 远程KataGo服务连接成功: {CONNECTION_CONFIG['remote_host']}:{CONNECTION_CONFIG['remote_port']}")
+            return True
+        else:
+            print(f"❌ 远程KataGo服务响应异常: {response.status_code}")
+            return False
+    except requests.exceptions.RequestException as e:
+        print(f"❌ 无法连接到远程KataGo服务 {CONNECTION_CONFIG['remote_host']}:{CONNECTION_CONFIG['remote_port']} - {e}")
+        return False
 
 def check_gpu_container():
     """检查GPU容器状态"""
@@ -82,6 +114,13 @@ def convert_to_gtp_coordinate(alpha_alpha_coord):
 
 def analyze_position(moves, move_number, debug=False):
     """分析指定手数后的局面"""
+    if CONNECTION_CONFIG['use_remote']:
+        return analyze_position_remote(moves, move_number, debug)
+    else:
+        return analyze_position_local(moves, move_number, debug)
+
+def analyze_position_remote(moves, move_number, debug=False):
+    """通过HTTP API分析位置"""
     try:
         # Convert all moves to GTP coordinate format before sending to KataGo
         converted_moves = []
@@ -92,19 +131,69 @@ def analyze_position(moves, move_number, debug=False):
         # 构建查询
         query = {
             "id": f"move_{move_number}",
-            "moves": converted_moves[:move_number], # Send moves up to current move_number
+            "moves": converted_moves[:move_number],
             "rules": "tromp-taylor",
             "komi": 7.5,
             "boardXSize": 19,
             "boardYSize": 19,
-            "analyzeTurns": [move_number], # Analyze the current move
+            "analyzeTurns": [move_number],
+            "includeOwnership": False,
+            "includePolicy": True,
+            "maxVisits": ANALYSIS_SETTINGS['max_visits'],
+            "maxTime": ANALYSIS_SETTINGS['max_time']
+        }
+
+        if debug:
+            print(f"   调试: 远程查询 {json.dumps(query)}")
+
+        url = f"http://{CONNECTION_CONFIG['remote_host']}:{CONNECTION_CONFIG['remote_port']}/analyze"
+        response = requests.post(
+            url,
+            json=query,
+            timeout=ANALYSIS_SETTINGS['timeout']
+        )
+
+        if response.status_code == 200:
+            analysis_data = response.json()
+            if debug:
+                visits = analysis_data.get('rootInfo', {}).get('visits', 0)
+                winrate = analysis_data.get('rootInfo', {}).get('winrate', 0) * 100
+                print(f"   调试: 远程分析成功 - visits: {visits}, winrate: {winrate:.1f}%")
+            
+            return parse_analysis_result(analysis_data, move_number)
+        else:
+            return {'error': f"❌ 远程分析失败: HTTP {response.status_code}", 'raw_output': response.text}
+
+    except requests.exceptions.RequestException as e:
+        return {'error': f"❌ 远程连接失败: {e}", 'raw_output': str(e)}
+    except Exception as e:
+        return {'error': f"❌ 远程分析异常: {e}", 'raw_output': str(e)}
+
+def analyze_position_local(moves, move_number, debug=False):
+    """通过本地Docker容器分析位置"""
+    try:
+        # Convert all moves to GTP coordinate format before sending to KataGo
+        converted_moves = []
+        for player, location in moves:
+            converted_location = convert_to_gtp_coordinate(location)
+            converted_moves.append([player, converted_location])
+
+        # 构建查询
+        query = {
+            "id": f"move_{move_number}",
+            "moves": converted_moves[:move_number],
+            "rules": "tromp-taylor",
+            "komi": 7.5,
+            "boardXSize": 19,
+            "boardYSize": 19,
+            "analyzeTurns": [move_number],
             "includeOwnership": False,
             "includePolicy": True
         }
 
         query_json = json.dumps(query)
         if debug:
-            print(f"   调试: 查询 {query_json}")
+            print(f"   调试: 本地查询 {query_json}")
 
         # 构建KataGo临时配置文件
         temp_config_content = f"""logDir = analysis_logs
@@ -119,10 +208,7 @@ numSearchThreads = 16
 """
         if debug:
             print(f"   调试: 使用临时配置 maxVisits={ANALYSIS_SETTINGS['max_visits']}, maxTime={ANALYSIS_SETTINGS['max_time']}")
-            print(f"   调试: Python超时={ANALYSIS_SETTINGS['timeout']}秒, KataGo超时={ANALYSIS_SETTINGS['timeout'] - 5}秒") # Give KataGo some buffer
 
-        # 通过docker exec执行KataGo命令，将配置和查询通过stdin传递
-        # 使用sh -c来组合多条命令，确保 KataGo 进程在 Docker 容器内接收到 stdin
         escaped_config = temp_config_content.replace('\n', '\\n').replace("'", "'\"'\"'")
         command = [
             "docker", "exec", "-i", CONTAINER_NAME,
@@ -146,10 +232,8 @@ numSearchThreads = 16
             print("---START STDERR---")
             print(result.stderr[:500] + ("..." if len(result.stderr) > 500 else ""))
             print("---END STDERR---")
-            # 不显示完整的stdout，因为包含大量JSON数据
 
-        # 尝试解析KataGo的JSON响应
-        # KataGo会将stderr和stdout混合输出，我们需要从混合输出中找到JSON行
+        # 解析KataGo的JSON响应
         analysis_data = None
         output_lines = result.stdout.splitlines() + result.stderr.splitlines()
         
@@ -159,31 +243,44 @@ numSearchThreads = 16
                 try:
                     analysis_data = json.loads(line)
                     if debug:
-                        # 只显示关键信息，不显示完整JSON
                         visits = analysis_data.get('rootInfo', {}).get('visits', 0)
                         winrate = analysis_data.get('rootInfo', {}).get('winrate', 0) * 100
-                        print(f"   调试: 成功解析JSON - ID: {analysis_data.get('id', '未知ID')}, visits: {visits}, winrate: {winrate:.1f}%")
-                    break # Found the JSON data, stop searching
+                        print(f"   调试: 本地分析成功 - visits: {visits}, winrate: {winrate:.1f}%")
+                    break
                 except json.JSONDecodeError:
-                    continue # Not a valid JSON line
+                    continue
 
+        if analysis_data:
+            return parse_analysis_result(analysis_data, move_number)
+        else:
+            return {'error': "❌ 未能从KataGo获取有效分析数据。", 'raw_output': result.stdout + result.stderr}
+
+    except subprocess.TimeoutExpired as e:
+        return {'error': f"❌ KataGo分析超时 ({ANALYSIS_SETTINGS['timeout']}秒)。", 'raw_output': getattr(e, 'stdout', '') + getattr(e, 'stderr', '')}
+    except FileNotFoundError:
+        return {'error': "❌ 未找到docker命令，请确认Docker已安装并运行。", 'raw_output': None}
+    except Exception as e:
+        return {'error': f"❌ 本地分析异常: {e}", 'raw_output': str(e)}
+
+def parse_analysis_result(analysis_data, move_number):
+    """解析分析结果"""
+    try:
         if analysis_data and analysis_data.get('id') == f"move_{move_number}":
             turn_data = analysis_data.get('rootInfo', {})
             winrate = turn_data.get('winrate', 0.0) * 100.0
             score_lead = turn_data.get('scoreLead', 0.0)
             visits = turn_data.get('visits', 0)
             
-            # Find the best move and its winrate from 'moves' list
+            # Find the best move
             best_move_info = None
             if 'moves' in analysis_data:
                 for move_info in analysis_data['moves']:
-                    if move_info.get('order') == 0: # Order 0 is the best move
+                    if move_info.get('order') == 0:
                         best_move_info = move_info
                         break
             
             recommended_move_gtp = "无"
             if best_move_info and 'move' in best_move_info:
-                # The 'move' field in KataGo's output for recommended moves is already GTP format (e.g., "Q16")
                 recommended_move_gtp = best_move_info['move']
             
             return {
@@ -194,12 +291,7 @@ numSearchThreads = 16
                 'error': None
             }
         else:
-            return {'error': "❌ 未能从KataGo获取有效分析数据。", 'raw_output': result.stdout + result.stderr}
-
-    except subprocess.TimeoutExpired as e:
-        return {'error': f"❌ KataGo分析超时 ({ANALYSIS_SETTINGS['timeout']}秒)。", 'raw_output': getattr(e, 'stdout', '') + getattr(e, 'stderr', '')}
-    except FileNotFoundError:
-        return {'error': "❌ 未找到docker命令，请确认Docker已安装并运行。", 'raw_output': None}
+            return {'error': "❌ 分析数据格式错误或ID不匹配。", 'raw_output': json.dumps(analysis_data) if analysis_data else "无数据"}
     except Exception as e:
         return {'error': f"❌ 分析过程中发生错误: {e}", 'raw_output': None}
 
@@ -238,13 +330,45 @@ def display_analysis_result(move_number, player, move_coord, result, total_moves
     print(f"{status_icon} ({visits} PO | {winrate:.1f}%): 第{move_number}/{total_moves}手: {player} {move_coord}")
     print(f"   胜率: {winrate:.1f}% | 分差: {score_lead:.1f} | PO: {visits} | 推荐: {recommended_move}")
 
+def configure_connection():
+    """配置连接方式"""
+    print("\n🔧 连接配置:")
+    print("1. 本地Docker容器 (默认)")
+    print("2. 远程KataGo服务")
+    
+    conn_choice = input("请选择连接方式 (1/2): ").strip()
+    
+    if conn_choice == "2":
+        CONNECTION_CONFIG['use_remote'] = True
+        host = input(f"远程主机IP (默认: {CONNECTION_CONFIG['remote_host']}): ").strip()
+        if host:
+            CONNECTION_CONFIG['remote_host'] = host
+        
+        port = input(f"远程端口 (默认: {CONNECTION_CONFIG['remote_port']}): ").strip()
+        if port:
+            try:
+                CONNECTION_CONFIG['remote_port'] = int(port)
+            except ValueError:
+                print("❌ 端口格式错误，使用默认端口")
+        
+        print(f"✅ 配置为远程模式: {CONNECTION_CONFIG['remote_host']}:{CONNECTION_CONFIG['remote_port']}")
+    else:
+        CONNECTION_CONFIG['use_remote'] = False
+        print("✅ 配置为本地Docker模式")
+
 def main():
-    if not check_gpu_container():
+    print("🎯 KataGo 逐步分析工具 - GPU版本")
+    
+    # 配置连接方式
+    configure_connection()
+    
+    # 检查连接
+    if not check_connection():
         return
 
     moves = []
     
-    print("\n选择输入方式:")
+    print("\n📝 选择输入方式:")
     print("1. 手动输入着法 (例如: B dp, W pd)")
     print("2. 从SGF文件内容解析 (粘贴SGF内容)")
     

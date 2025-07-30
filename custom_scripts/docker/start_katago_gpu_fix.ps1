@@ -21,10 +21,10 @@ if ($image) {
     $containerId = docker run -d `
         --name katago-gpu-direct `
         --gpus all `
-        -v "${PWD}/models:/app/models:ro" `
-        -v "${PWD}/logs:/app/logs" `
-        -v "${PWD}/analysis_logs:/app/analysis_logs" `
-        -v "${PWD}/configs:/app/configs/custom:ro" `
+        -v "${PWD}/../../models:/app/models:ro" `
+        -v "${PWD}/../../logs:/app/logs" `
+        -v "${PWD}/../../analysis_logs:/app/analysis_logs" `
+        -v "${PWD}/../../custom_scripts/configs:/app/configs/custom:ro" `
         -e TZ=Asia/Shanghai `
         -e NVIDIA_VISIBLE_DEVICES=all `
         -e NVIDIA_DRIVER_CAPABILITIES=compute,utility `

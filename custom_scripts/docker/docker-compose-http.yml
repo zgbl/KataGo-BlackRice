@@ -1,0 +1,290 @@
+# KataGo HTTP服务 Docker Compose 配置
+# 这个文件用于快速启动KataGo HTTP服务
+# 使用方法: docker-compose -f docker-compose-http.yml up -d
+
+version: '3.8'
+
+services:
+  # KataGo HTTP服务
+  katago-http:
+    build:
+      context: ../../
+      dockerfile: http_server/docker/Dockerfile.http
+      args:
+        - CUDA_VERSION=12.6
+        - UBUNTU_VERSION=22.04
+    container_name: katago-http-server
+    hostname: katago-http
+    restart: unless-stopped
+    
+    # 端口映射
+    ports:
+      - "8080:8080"  # 主HTTP端口
+      - "8081:8081"  # 备用HTTP端口
+      - "9090:9090"  # Prometheus指标端口
+    
+    # 环境变量
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - HTTP_PORT=8080
+      - HTTP_BACKUP_PORT=8081
+      - LOG_LEVEL=INFO
+      - ANALYSIS_THREADS=4
+      - MAX_CONCURRENT_EVALS=2
+      - MAX_BATCH_SIZE=8
+      - DEFAULT_MAX_VISITS=1000
+      - ENABLE_CORS=true
+      - ENABLE_PROMETHEUS=true
+      - PROMETHEUS_PORT=9090
+    
+    # 卷挂载
+    volumes:
+      # 配置文件
+      - ../../http_server/configs/katago_http.cfg:/app/configs/katago_http.cfg:ro
+      
+      # 模型文件
+      - ../../models:/app/models:ro
+      
+      # 日志目录
+      - ../../http_server/logs:/app/logs
+      
+      # 脚本目录
+      - ../../http_server/scripts:/app/scripts:ro
+      
+      # 可选: 自定义配置
+      # - ./custom_configs:/app/custom_configs:ro
+    
+    # GPU资源
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "python3", "/app/scripts/health_check.py", "--quick"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    # 网络
+    networks:
+      - katago-network
+    
+    # 依赖
+    depends_on:
+      - redis
+    
+    # 日志配置
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+        labels: "service=katago-http"
+
+  # Redis缓存 (可选)
+  redis:
+    image: redis:7-alpine
+    container_name: katago-redis
+    hostname: redis
+    restart: unless-stopped
+    
+    ports:
+      - "6379:6379"
+    
+    volumes:
+      - redis_data:/data
+      - ./redis.conf:/usr/local/etc/redis/redis.conf:ro
+    
+    command: redis-server /usr/local/etc/redis/redis.conf
+    
+    networks:
+      - katago-network
+    
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # Nginx反向代理 (可选)
+  nginx:
+    image: nginx:alpine
+    container_name: katago-nginx
+    hostname: nginx
+    restart: unless-stopped
+    
+    ports:
+      - "80:80"
+      - "443:443"
+    
+    volumes:
+      - ../../http_server/configs/nginx.conf:/etc/nginx/nginx.conf:ro
+      - nginx_logs:/var/log/nginx
+      # SSL证书 (如果使用HTTPS)
+      # - ./ssl:/etc/nginx/ssl:ro
+    
+    networks:
+      - katago-network
+    
+    depends_on:
+      - katago-http
+    
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+  # Prometheus监控 (可选)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: katago-prometheus
+    hostname: prometheus
+    restart: unless-stopped
+    
+    ports:
+      - "9091:9090"
+    
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    
+    networks:
+      - katago-network
+    
+    depends_on:
+      - katago-http
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # Grafana可视化 (可选)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: katago-grafana
+    hostname: grafana
+    restart: unless-stopped
+    
+    ports:
+      - "3000:3000"
+    
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_USERS_ALLOW_SIGN_UP=false
+    
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    
+    networks:
+      - katago-network
+    
+    depends_on:
+      - prometheus
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+# 网络配置
+networks:
+  katago-network:
+    driver: bridge
+    name: katago-network
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+# 卷配置
+volumes:
+  redis_data:
+    name: katago_redis_data
+  prometheus_data:
+    name: katago_prometheus_data
+  grafana_data:
+    name: katago_grafana_data
+  nginx_logs:
+    name: katago_nginx_logs
+
+# 扩展配置
+x-common-variables: &common-variables
+  CUDA_VISIBLE_DEVICES: 0
+  NVIDIA_VISIBLE_DEVICES: all
+  NVIDIA_DRIVER_CAPABILITIES: compute,utility
+  TZ: Asia/Shanghai
+
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "100m"
+    max-file: "5"
+
+x-restart-policy: &restart-policy
+  restart: unless-stopped
+
+# 使用说明:
+# 
+# 1. 启动所有服务:
+#    docker-compose -f docker-compose-http.yml up -d
+# 
+# 2. 只启动KataGo HTTP服务:
+#    docker-compose -f docker-compose-http.yml up -d katago-http
+# 
+# 3. 查看日志:
+#    docker-compose -f docker-compose-http.yml logs -f katago-http
+# 
+# 4. 停止服务:
+#    docker-compose -f docker-compose-http.yml down
+# 
+# 5. 重建并启动:
+#    docker-compose -f docker-compose-http.yml up -d --build
+# 
+# 6. 扩展服务 (多实例):
+#    docker-compose -f docker-compose-http.yml up -d --scale katago-http=2
+# 
+# 7. 查看服务状态:
+#    docker-compose -f docker-compose-http.yml ps
+# 
+# 8. 进入容器:
+#    docker-compose -f docker-compose-http.yml exec katago-http bash
+# 
+# 访问地址:
+# - KataGo HTTP API: http://localhost:8080
+# - Nginx (如果启用): http://localhost
+# - Prometheus (如果启用): http://localhost:9091
+# - Grafana (如果启用): http://localhost:3000 (admin/admin123)
+# - Redis (如果启用): localhost:6379

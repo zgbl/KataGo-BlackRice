@@ -16,12 +16,16 @@ services:
       - ./models:/app/models:ro
       - ./logs:/app/logs
       - ./analysis_logs:/app/analysis_logs
-      - ./configs:/app/configs/custom:ro
+      - ./custom_scripts/configs:/app/configs/custom:ro
     environment:
       - TZ=Asia/Shanghai
     stdin_open: true
     tty: true
-    command: /app/start_analysis.sh
+    command: [
+      "katago", "analysis",
+      "-config", "/app/configs/custom/katago_http.cfg",
+      "-model", "/app/models/model.bin.gz"
+    ]
     restart: unless-stopped
 
   # GPU版本 - 适用于Windows和Linux（带NVIDIA GPU）
@@ -34,12 +38,15 @@ services:
         USE_TCMALLOC: 1
         USE_AVX2: 1
         BUILD_DISTRIBUTED: 0
+        BASE_IMAGE: nvidia/cuda:12.9.1-cudnn-devel-ubuntu22.04
     container_name: katago-gpu
+    ports:
+      - "8080:8080"  # 映射端口以支持远程访问
     volumes:
       - ./models:/app/models:ro
       - ./logs:/app/logs
       - ./analysis_logs:/app/analysis_logs
-      - ./configs:/app/configs/custom:ro
+      - ./custom_scripts/configs:/app/configs/custom:ro
     environment:
       - TZ=Asia/Shanghai
       - NVIDIA_VISIBLE_DEVICES=all
@@ -169,3 +176,54 @@ services:
     tty: true
     command: /bin/bash
     restart: unless-stopped
+
+  # KataGo HTTP 分析服务 - 使用专用 Dockerfile.http
+  katago-http-server:
+    build:
+      context: . # 修正 context 路径为当前目录
+      dockerfile: http_server/docker/Dockerfile.http # 指定使用 HTTP 服务的 Dockerfile
+      args:  # 这里有 args
+        USE_BACKEND: CUDA
+        USE_TCMALLOC: 1
+        USE_AVX2: 1
+        BUILD_DISTRIBUTED: 0
+        BASE_IMAGE: nvidia/cuda:12.9.1-cudnn-devel-ubuntu22.04
+    container_name: katago-http-server # 明确指定容器名称
+    restart: unless-stopped
+    ports:
+      - "8080:8080"  # 映射端口以支持远程访问
+      - "8081:8081"  # 备用端口，如果 katago_http.cfg 中配置了
+    volumes:
+      # 挂载 HTTP 服务的配置文件
+      - ./http_server/configs/katago_http.cfg:/app/configs/custom/katago_http.cfg:ro
+      # 挂载模型目录
+      - ./models:/app/models:ro # 修正模型路径
+      # 挂载日志目录
+      - ./http_server/logs:/app/logs
+      # 如果需要X11转发（通常HTTP服务不需要，但如果Dockerfile或KataGo有此依赖，可保留）
+      # - /tmp/.X11-unix:/tmp/.X11-unix:rw
+    environment:
+      - TZ=Asia/Shanghai # 设置时区
+      - DISPLAY=${DISPLAY:-:0} # 如果需要图形界面（通常HTTP服务不需要）
+      - CUDA_VISIBLE_DEVICES=0
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - KATAGO_CONFIG=/app/configs/custom/katago_http.cfg # 传递配置文件路径
+      - KATAGO_MODEL=/app/models/model.bin.gz # 传递模型文件路径
+      - LOG_LEVEL=INFO # 日志级别
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck: # 定义健康检查
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"] # 检查 /health 端点
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    command: /app/start_http_server.sh # 明确执行 HTTP 服务的启动脚本
+    # 注意：如果您的 Dockerfile.http 已经设置了 CMD，这里可以省略 command
+    # 但为了明确性，保留它也无妨
